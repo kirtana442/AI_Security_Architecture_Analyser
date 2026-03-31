@@ -1,0 +1,65 @@
+# ==========================================
+# System / OS Files
+# ==========================================
+.DS_Store
+Thumbs.db
+*.log
+
+# ==========================================
+# Frontend (Next.js / React)
+# ==========================================
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env*.local
+frontend/.vercel
+
+# TypeScript / IDE
+frontend/.tsbuildinfo
+frontend/.vscode
+
+# ==========================================
+# Backend (FastAPI / Python)
+# ==========================================
+# Virtual Environments
+backend/venv/
+backend/env/
+backend/.venv/
+backend/ENV/
+
+# Python cache
+backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/*$py.class
+
+# Environment Variables
+backend/.env
+
+# Packaging
+backend/dist/
+backend/build/
+backend/*.egg-info/
+
+# ==========================================
+# Databases & AI Artifacts
+# ==========================================
+# SQLite database (Local prototype data)
+backend/*.sqlite3
+backend/*.db
+
+# ChromaDB / Vector Store 
+# (Don't commit the actual vector index files)
+backend/chroma_db/
+backend/embeddings_cache/
+
+# Local Sentence Transformer Models 
+# (Optional: ignore if you download models locally)
+backend/models/
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
