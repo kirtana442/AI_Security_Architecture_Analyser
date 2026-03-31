@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 
 from database import fetch_architecture, init_db, insert_architecture
-from schemas import ArchitectureRequest, ArchitectureResponse, ExtractionResult
+from schemas import ArchitectureRequest, ArchitectureResponse, ExtractionResult,Graph
 from llm import extract_architecture
+from graph import build_graph
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -109,3 +110,87 @@ async def extract_architecture_by_id(id: str) -> ExtractionResult:
  
     # validate with Pydantic and return
     return ExtractionResult(architecture_id=id, **raw_extraction)
+
+@app.post(
+    "/graph/{id}",
+    response_model=Graph,
+    summary="Build and return a knowledge graph for an architecture",
+)
+async def construct_graph(id: str) -> Graph:
+    """
+    Retrieve the stored extraction for the architecture identified by *id*,
+    build a knowledge graph from it, and return the graph with normalized
+    nodes and typed edges.
+    
+    Flow:
+        1. Fetch the extraction result for *id* (404 if missing).
+        2. Call ``build_graph()`` to construct the knowledge graph.
+        3. Validate and return the structured Graph schema.
+    
+    Graph construction rules:
+        Nodes:
+            - Each extracted item becomes a node with a normalized ID.
+            - Node types: component, auth, datastore, external, endpoint, 
+                         sensitive, internet (auto-created for public endpoints).
+            - IDs are normalized (lowercase, spaces → underscores, deduplicated).
+        
+        Edges:
+            - component → component: "calls" (mesh between components)
+            - component → datastore: "reads_writes"
+            - component → auth: "authenticates"
+            - component → external: "integrates_with"
+            - endpoint → internet: "exposed_to"
+        
+        Determinism:
+            - Nodes and edges are always returned in sorted order.
+            - No duplicate nodes or edges.
+    
+    Args:
+        id: UUID of the architecture record.
+    
+    Returns:
+        Graph object with normalized nodes and typed edges.
+    
+    Raises:
+        **404** – architecture record or extraction not found.
+        **422** – graph construction failed (invalid extraction data).
+        **500** – unexpected error during graph construction.
+    """
+    
+    # Fetch the stored architecture
+    architecture_record = fetch_architecture(id)
+    if architecture_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Architecture with id '{id}' not found.",
+        )
+    
+    # Run LLM extraction (same as /extract endpoint)
+    try:
+        raw_extraction: dict = extract_architecture(architecture_record["architecture_text"])
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"LLM extraction failed: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error during extraction: {exc}",
+        ) from exc
+    
+    # Build the knowledge graph
+    try:
+        graph = build_graph(raw_extraction, id)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Graph construction failed: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error during graph construction: {exc}",
+        ) from exc
+    
+    return graph

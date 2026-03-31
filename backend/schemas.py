@@ -58,3 +58,85 @@ class ExtractionResult(BaseModel):
         default_factory=list,
         description="Routes, ports, or interfaces exposed to external clients.",
     )
+
+class GraphNode(BaseModel):
+    """
+    A single node in the security architecture graph.
+    
+    Attributes:
+        id: Unique normalized identifier (lowercase, underscores, deduplicated).
+        label: Human-readable label extracted from architecture description.
+        type: Node classification:
+               - "component": internal service/microservice/module
+               - "auth": authentication/authorisation mechanism
+               - "datastore": database/cache/queue
+               - "external": third-party API/SaaS/cloud service
+               - "endpoint": public route/port/interface
+               - "sensitive": sensitive data classification
+               - "internet": external internet (auto-generated for public endpoints)
+    """
+    id: str = Field(
+        ...,
+        description="Normalized node identifier (lowercase, underscores, no duplicates).",
+    )
+    label: str = Field(
+        ...,
+        description="Human-readable label from the architecture description.",
+    )
+    type: str = Field(
+        ...,
+        description="Node type: component, auth, datastore, external, endpoint, sensitive, internet.",
+    )
+ 
+ 
+class GraphEdge(BaseModel):
+    """
+    A directed edge representing a relationship in the architecture graph.
+    
+    Attributes:
+        source: ID of the source node.
+        target: ID of the target node.
+        type: Relationship type:
+               - "calls": component/service calling another
+               - "reads_writes": service accessing a datastore
+               - "authenticates": service using authentication mechanism
+               - "integrates_with": service integrating with external service
+               - "exposed_to": endpoint exposed to the internet
+    """
+    source: str = Field(
+        ...,
+        description="Source node ID.",
+    )
+    target: str = Field(
+        ...,
+        description="Target node ID.",
+    )
+    type: str = Field(
+        ...,
+        description="Edge type: calls, reads_writes, authenticates, integrates_with, exposed_to.",
+    )
+ 
+ 
+class Graph(BaseModel):
+    """
+    Complete security architecture graph extracted from the LLM analysis.
+    
+    Returned by POST /graph/{id}.
+    
+    Attributes:
+        architecture_id: UUID of the source architecture record.
+        nodes: List of all nodes in the graph.
+        edges: List of all directed edges in the graph.
+    """
+    architecture_id: str = Field(
+        ...,
+        description="UUID of the source architecture record.",
+    )
+    nodes: List[GraphNode] = Field(
+        default_factory=list,
+        description="All nodes in the security architecture graph.",
+    )
+    edges: List[GraphEdge] = Field(
+        default_factory=list,
+        description="All directed edges representing relationships in the graph.",
+    )
