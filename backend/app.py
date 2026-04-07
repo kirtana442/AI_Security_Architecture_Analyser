@@ -4,15 +4,20 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
-from database import fetch_architecture, init_db, insert_architecture
-from schemas import ArchitectureRequest, ArchitectureResponse, ExtractionResult,Graph
+from database import fetch_architecture, init_db, insert_architecture, update_architecture_extraction, update_architecture_graph, insert_graph_log
+from schemas import ArchitectureRequest, ArchitectureResponse, ExtractionResult, Graph
 from llm import extract_architecture
 from graph import build_graph
+from retrieval.vector_store import index_guidance
+
+import json
+import time
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     #initialise resources on startup
     init_db()
+    index_guidance()
     yield
 
 app = FastAPI(
@@ -107,6 +112,10 @@ async def extract_architecture_by_id(id: str) -> ExtractionResult:
             status_code=500,
             detail=f"Unexpected error during extraction: {exc}",
         ) from exc
+    
+    extraction_json = json.dumps(raw_extraction)
+    update_architecture_extraction(id, extraction_json)
+
  
     # validate with Pydantic and return
     return ExtractionResult(architecture_id=id, **raw_extraction)
@@ -165,23 +174,23 @@ async def construct_graph(id: str) -> Graph:
             detail=f"Architecture with id '{id}' not found.",
         )
     
-    # Run LLM extraction (same as /extract endpoint)
-    try:
-        raw_extraction: dict = extract_architecture(architecture_record["architecture_text"])
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"LLM extraction failed: {exc}",
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected error during extraction: {exc}",
-        ) from exc
-    
+    if architecture_record.get("graph"):
+        graph_dict = json.loads(architecture_record["graph"])
+        node_count = len(graph_dict.get("nodes",[]))
+        edge_count = len(graph_dict.get("edges", []))
+        insert_graph_log(id,"fetch", node_count, edge_count, duration_ms = 0)
+        return Graph(**graph_dict)
+
+    extraction_json = architecture_record.get("extraction")
+    if not extraction_json:
+        raise HTTPException(status_code=404, detail=f"No extraction stored for architecture '{id}'.")
+
+    extraction_data = json.loads(extraction_json)
+
     # Build the knowledge graph
+    start_time = time.time()
     try:
-        graph = build_graph(raw_extraction, id)
+        graph = build_graph(extraction_data, id)
     except (ValueError, KeyError, TypeError) as exc:
         raise HTTPException(
             status_code=422,
@@ -193,4 +202,10 @@ async def construct_graph(id: str) -> Graph:
             detail=f"Unexpected error during graph construction: {exc}",
         ) from exc
     
+    duration_ms = int((time.time() - start_time) * 1000)
+
+    graph_json = graph.json()
+    update_architecture_graph(id, graph_json)
+    insert_graph_log(id, "build", len(graph.nodes), len(graph.edges), duration_ms)
+
     return graph

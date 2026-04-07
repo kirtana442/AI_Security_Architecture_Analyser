@@ -16,9 +16,17 @@ from typing import Dict, List
 from schemas import Graph, GraphNode, GraphEdge
 
 
-# ---------------------------------------------------------------------------
+NODE_PRIORITY = {
+    "component": 6,
+    "auth": 7,
+    "datastore": 5,
+    "external": 4,
+    "endpoint": 3,
+    "sensitive": 2,
+    "internet": 1
+}
+
 # Normalization utilities
-# ---------------------------------------------------------------------------
 
 def normalize_id(label: str) -> str:
     """
@@ -41,25 +49,19 @@ def normalize_id(label: str) -> str:
         >>> normalize_id("PostgreSQL (v13)")
         'postgresql_v13'
     """
-    # Convert to lowercase
+    
     normalized = label.lower()
     
-    # Replace spaces with underscores
     normalized = normalized.replace(" ", "_")
     
-    # Remove special characters, keep only alphanumeric and underscores
-    # but preserve internal structure
-    normalized = "".join(c if c.isalnum() or c == "_" else "" for c in normalized)
     
-    # Remove leading/trailing underscores
+    normalized = "".join(c if c.isalnum() or c == "_" else "" for c in normalized)
+   
     normalized = normalized.strip("_")
     
     return normalized
 
 
-# ---------------------------------------------------------------------------
-# Graph builder
-# ---------------------------------------------------------------------------
 
 def build_graph(extraction: dict, architecture_id: str) -> Graph:
     """
@@ -89,11 +91,11 @@ def build_graph(extraction: dict, architecture_id: str) -> Graph:
     Returns:
         Graph: Validated Graph object with deduplicated nodes and semantic edges.
     """
-    # Containers for deduplication
+    
     nodes_dict: Dict[str, GraphNode] = {}
     edges_list: List[GraphEdge] = []
     
-    # Helper to add node (if not already present)
+    
     def add_node(label: str, node_type: str) -> str:
         """
         Add or retrieve a node. Returns its normalized ID.
@@ -107,7 +109,11 @@ def build_graph(extraction: dict, architecture_id: str) -> Graph:
         """
         node_id = normalize_id(label)
         
-        if node_id not in nodes_dict:
+        if node_id in nodes_dict:
+            existing_type = nodes_dict[node_id].type
+            if NODE_PRIORITY.get(node_type, 0) > NODE_PRIORITY.get(existing_type, 0):
+                nodes_dict[node_id].type = node_type
+        else:
             nodes_dict[node_id] = GraphNode(
                 id=node_id,
                 label=label,
@@ -116,7 +122,7 @@ def build_graph(extraction: dict, architecture_id: str) -> Graph:
         
         return node_id
     
-    # Helper to add edge
+    
     def add_edge(source_id: str, target_id: str, edge_type: str) -> None:
         """
         Add a directed edge between two nodes.
@@ -134,9 +140,7 @@ def build_graph(extraction: dict, architecture_id: str) -> Graph:
             )
         )
     
-    # ========================================================================
     # Phase 1: Add all nodes from extraction
-    # ========================================================================
     
     # Components (internal services/microservices)
     component_ids: List[str] = []
@@ -174,17 +178,13 @@ def build_graph(extraction: dict, architecture_id: str) -> Graph:
         node_id = add_node(sensitive, "sensitive")
         sensitive_ids.append(node_id)
     
-    # ========================================================================
     # Phase 2: Create the "internet" node if public endpoints exist
-    # ========================================================================
     
     internet_id = None
     if endpoint_ids:
         internet_id = add_node("Internet", "internet")
     
-    # ========================================================================
     # Phase 3: Add edges based on semantic rules
-    # ========================================================================
     
     # Rule: Component -> Component (calls)
     # Create edges between components (assume a linear call chain or mesh)
@@ -220,9 +220,7 @@ def build_graph(extraction: dict, architecture_id: str) -> Graph:
     # Sensitive data is tracked as a node type for visualization and analysis,
     # but relationships to it are implicit (accessed via components/datastores).
     
-    # ========================================================================
     # Phase 4: Construct and return the Graph
-    # ========================================================================
     
     return Graph(
         architecture_id=architecture_id,
